@@ -50,7 +50,6 @@
 
   function init(){
     buildEditor();
-    setupColorSwatches();
     addPieceBtn.addEventListener('click', onAddPiece);
     solveBtn.addEventListener('click', onSolve);
     clearBtn.addEventListener('click', onClear);
@@ -62,27 +61,6 @@
       inp.addEventListener('change', refreshEditorUI);
     });
     renderPiecesList();
-  }
-
-  // Apply palette colors to the picker swatches so the UI is driven by the PALETTE
-  function setupColorSwatches(){
-    const swatches = document.querySelectorAll('.color-swatch');
-    swatches.forEach(label => {
-      const inp = label.querySelector('input.color-choice');
-      if (!inp) return;
-      const key = inp.value;
-      const color = PALETTE[key] || PALETTE.magenta;
-      label.style.background = color;
-      // choose text color for contrast (simple luminance threshold)
-      const m = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-      if (m) {
-        const r = +m[1], g = +m[2], b = +m[3];
-        const luma = 0.299*r + 0.587*g + 0.114*b;
-        label.style.color = luma < 140 ? '#fff' : '#111';
-      } else {
-        label.style.color = '#111';
-      }
-    });
   }
 
   let editorGrid = null;
