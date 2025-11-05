@@ -63,8 +63,21 @@
     boardH.value = 9;
     // no hex size input, fixed size
     colorInputs.forEach(inp => {
-      inp.addEventListener('change', refreshEditorUI);
+      inp.addEventListener('change', () => {
+        updateEditorCellsToSelectedColor();
+        refreshEditorUI();
+      });
     });
+  // When color picker changes, update all selected cells to the new color
+  function updateEditorCellsToSelectedColor() {
+    if (!editorGrid) return;
+    const newColor = PALETTE[getSelectedColor()];
+    editorGrid.forEach(cell => {
+      if (cell.data && cell.data.color && cell.data.color !== newColor) {
+        editorGrid.set(cell.hex, { color: newColor });
+      }
+    });
+  }
     renderPiecesList();
   }
 
