@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+  <head>
+    <meta charset="utf-8">
+    <meta name="description" content="mycopunk placement thing">
+    <meta name="author" content="borges">
+    <title>mycopunk hex solver</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="//fonts.googleapis.com/css?family=Raleway:400,300,600" rel="stylesheet" type="text/css">
+    <link rel="stylesheet" type="text/css" href="//cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css">
+    <link rel="stylesheet" type="text/css" href="//cdnjs.cloudflare.com/ajax/libs/skeleton/2.0.4/skeleton.min.css">
+    <style>
+      li { text-align: justify; }
+      h3 { padding-top: 2rem; margin-bottom: 0; }
+      #hex-container { background: #fff; }
+      #board-container {
+        display: inline-block;
+        background: #fff;
+        padding: 8px;
+      }
+      .color-picker label {
+        padding: 2px 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        display: inline-block;
+        margin-right: 4px;
+      }
+      #solver-stats {
+        margin-bottom: 1rem;
+        padding: 1rem;
+        background: #f5f5f5;
+        border-radius: 4px;
+        font-size: 0.9em;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h3>mycopunk hex solver</h3>
+      by Bruno02468
+      <a href="https://github.com/Bruno02468/mycopunk-solver" target="_blank">(source)</a>
+      <br>
+      <i>made in an afternoon on a dare</i>
+      <br>
+      <br>
+      <br>
+      <div class="row">
+        <div class="six columns">
+          <h5>piece editor</h5>
+          <div id="editor-grid"></div>
+
+          <div class="color-picker" style="margin: 1rem 0;">
+            <label>color:</label>
+            <label style="background:#e91e63;color:#fff">
+              <input class="color-choice" type="radio" name="color" value="magenta" checked>
+            </label>
+            <label style="background:#4fc3f7;color:#111">
+              <input class="color-choice" type="radio" name="color" value="blue">
+            </label>
+            <label style="background:#ffb74d;color:#111">
+              <input class="color-choice" type="radio" name="color" value="orange">
+            </label>
+            <label style="background:#8bc34a;color:#111">
+              <input class="color-choice" type="radio" name="color" value="green">
+            </label>
+          </div>
+
+          <button id="add-piece" class="button-primary">add piece</button>
+          <br>
+          <br>
+          <br>
+          <h5>pieces</h5>
+          <ul id="pieces-list" style="list-style:none;padding-left:0;"></ul>
+        </div>
+
+        <div class="six columns">
+          <h5>solution</h5>
+
+          <div class="row">
+            <div class="three columns">
+              <label for="board-w">columns</label>
+              <input id="board-w" type="number" value="9" min="1" class="u-full-width">
+            </div>
+            <div class="three columns">
+              <label for="board-h">rows</label>
+              <input id="board-h" type="number" value="9" min="1" class="u-full-width">
+            </div>
+          </div>
+
+          <div style="margin-bottom: 1rem;">
+            <button id="solve" class="button-primary">solve</button>
+            <button id="clear-solution">clear</button>
+          </div>
+
+          <div style="margin-bottom: 1rem;">
+            <label>
+              <input type="checkbox" id="use-workers" checked>
+              <span class="label-body">use multiple threads</span>
+            </label>
+            <label>
+              <input type="checkbox" id="high-contrast" checked>
+              <span class="label-body">high contrast solution</span>
+            </label>
+          </div>
+
+          <div id="solver-stats" style="display:none">
+            <div><strong>status:</strong> <span id="stats-status">running...</span></div>
+            <div><strong>states checked:</strong> <span id="stats-count">0</span></div>
+            <div><strong>coverage:</strong> <span id="stats-coverage">0</span> cells</div>
+            <div><strong>pieces placed:</strong> <span id="stats-pieces">0</span></div>
+            <div><strong>elapsed time:</strong> <span id="stats-time">0</span>&nbsp;s</div>
+          </div>
+
+          <div id="board-container"></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="./hexgrid.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
