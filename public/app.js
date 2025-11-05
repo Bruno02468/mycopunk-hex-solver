@@ -35,6 +35,7 @@
   const boardContainer = document.getElementById('board-container');
   const useWorkersCheckbox = document.getElementById('use-workers');
   const highContrastCheckbox = document.getElementById('high-contrast');
+  const allowRotationsCheckbox = document.getElementById('allow-rotations');
   const solverStatsEl = document.getElementById('solver-stats');
   const statsStatus = document.getElementById('stats-status');
   const statsCount = document.getElementById('stats-count');
@@ -359,7 +360,8 @@
     // Precompute placements (use integer indices for targets and anchor index)
     const piecePlacements = pieces.map((piece, pi) => {
       const placements = [];
-      for (let rot = 0; rot < 6; rot++) {
+      const rotLimit = (allowRotationsCheckbox && !allowRotationsCheckbox.checked) ? 1 : 6;
+      for (let rot = 0; rot < rotLimit; rot++) {
         boardGrid.forEach((cell) => {
           const anchor = cell.hex;
           let valid = true;
@@ -584,7 +586,8 @@
     // Find all valid placements for each piece (precompute)
     const piecePlacements = pieces.map((piece, pi) => {
       const placements = [];
-      for (let rot = 0; rot < 6; rot++) {
+      const rotLimit = (allowRotationsCheckbox && !allowRotationsCheckbox.checked) ? 1 : 6;
+      for (let rot = 0; rot < rotLimit; rot++) {
         boardGrid.forEach((cell) => {
           const anchor = cell.hex;
           let valid = true;
