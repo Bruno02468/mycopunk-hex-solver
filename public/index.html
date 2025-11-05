@@ -94,10 +94,6 @@
 
           <div style="margin-bottom: 1rem;">
             <label>
-              <input type="checkbox" id="use-workers" checked>
-              <span class="label-body">use good solver</span>
-            </label>
-            <label>
               <input type="checkbox" id="allow-rotations" checked>
               <span class="label-body">allow rotations</span>
             </label>
@@ -107,6 +103,14 @@
             </label>
           </div>
 
+          <div id="solution-cycling" style="display:none; margin-bottom: 1rem; padding: 0.5rem; background: #f0f0f0; border-radius: 4px;">
+            <div style="margin-bottom: 0.5rem;">
+              <strong>top solutions:</strong> <span id="solution-counter">1 of 1</span>
+            </div>
+            <button id="prev-solution">← previous</button>
+            <button id="next-solution">next →</button>
+          </div>
+
           <div id="solver-stats" style="display:none">
             <div><strong>status:</strong> <span id="stats-status">running...</span></div>
             <div><strong>states checked:</strong> <span id="stats-count">0</span></div>
@@ -114,7 +118,7 @@
             <div><strong>pieces placed:</strong> <span id="stats-pieces">0</span></div>
             <div><strong>elapsed time:</strong> <span id="stats-time">0</span>&nbsp;s</div>
           </div>
-
+          <br>
           <div id="board-container"></div>
         </div>
       </div>

@@ -20,12 +20,12 @@
   let solverRunning = false;
   let solverShouldStop = false;
   let workers = [];
-  let useWebWorkers = true; // Toggle to enable/disable workers
+  let topSolutions = []; // All solutions tied for best coverage
+  let currentSolutionIndex = 0; // Current solution being displayed
 
   // DOM refs
   const editorGridEl = document.getElementById('editor-grid');
   const colorInputs = document.querySelectorAll('.color-choice');
-  // no piece names
   const addPieceBtn = document.getElementById('add-piece');
   const piecesList = document.getElementById('pieces-list');
   const boardW = document.getElementById('board-w');
@@ -33,7 +33,6 @@
   const solveBtn = document.getElementById('solve');
   const clearBtn = document.getElementById('clear-solution');
   const boardContainer = document.getElementById('board-container');
-  const useWorkersCheckbox = document.getElementById('use-workers');
   const highContrastCheckbox = document.getElementById('high-contrast');
   const allowRotationsCheckbox = document.getElementById('allow-rotations');
   const solverStatsEl = document.getElementById('solver-stats');
@@ -42,6 +41,10 @@
   const statsCoverage = document.getElementById('stats-coverage');
   const statsPieces = document.getElementById('stats-pieces');
   const statsTime = document.getElementById('stats-time');
+  const solutionCyclingEl = document.getElementById('solution-cycling');
+  const solutionCounter = document.getElementById('solution-counter');
+  const prevSolutionBtn = document.getElementById('prev-solution');
+  const nextSolutionBtn = document.getElementById('next-solution');
   // fixed hex size for all grids
   const HEX_SIZE = 24;
   const PREVIEW_SIZE = 8;
@@ -54,6 +57,8 @@
     solveBtn.addEventListener('click', onSolve);
     clearBtn.addEventListener('click', onClear);
     highContrastCheckbox.addEventListener('change', renderBoard);
+    prevSolutionBtn.addEventListener('click', showPreviousSolution);
+    nextSolutionBtn.addEventListener('click', showNextSolution);
     boardW.value = 9;
     boardH.value = 9;
     // no hex size input, fixed size
@@ -322,12 +327,7 @@
       return;
     }
 
-    // Check if Web Workers are supported and enabled
-    if (useWorkersCheckbox && useWorkersCheckbox.checked && typeof Worker !== 'undefined') {
-      await solveWithWorkers();
-    } else {
-      await solveAsync();
-    }
+    await solveWithWorkers();
   }
 
   // Web Worker-based parallel solver
@@ -337,6 +337,9 @@
     solveBtn.textContent = 'stop';
     solverStatsEl.style.display = 'block';
     statsStatus.textContent = 'running (parallel)...';
+    solutionCyclingEl.style.display = 'none';
+    topSolutions = [];
+    currentSolutionIndex = 0;
 
     const w = Math.max(1, parseInt(boardW.value, 10) || 1);
     const h = Math.max(1, parseInt(boardH.value, 10) || 1);
@@ -400,7 +403,6 @@
     console.log(`Using ${numWorkers} workers`);
 
     // Global best tracking
-    let bestSolution = null;
     let bestCoverage = 0;
     let totalSearchCount = 0;
     let completedWorkers = 0;
@@ -412,18 +414,28 @@
 
       statsCount.textContent = totalSearchCount.toLocaleString() + ` (${statesPerSecond.toLocaleString()}/s)`;
       statsCoverage.textContent = `${bestCoverage}/${boardSize}`;
-      statsPieces.textContent = bestSolution ? `${bestSolution.length}/${pieces.length}` : `0/${pieces.length}`;
+      const currentSolution = topSolutions[currentSolutionIndex];
+      statsPieces.textContent = currentSolution ? `${currentSolution.length}/${pieces.length}` : `0/${pieces.length}`;
       statsTime.textContent = elapsed.toFixed(1);
     }
 
+    function updateSolutionCounter() {
+      if (topSolutions.length > 0) {
+        solutionCounter.textContent = `${currentSolutionIndex + 1} of ${topSolutions.length}`;
+        solutionCyclingEl.style.display = topSolutions.length > 1 ? 'block' : 'none';
+      }
+    }
+
     function updateBoardDisplay() {
-      if (!bestSolution) return;
+      if (topSolutions.length === 0) return;
+      const solution = topSolutions[currentSolutionIndex];
+      if (!solution) return;
 
       boardGrid.forEach(cell => {
         boardGrid.set(cell.hex, null);
       });
 
-      for (const placement of bestSolution) {
+      for (const placement of solution) {
         const piece = pieces.find(p => p.id === placement.piece);
         const anchor = new HexGrid.Hex(placement.anchor.q, placement.anchor.r);
 
@@ -434,8 +446,33 @@
         }
       }
 
-      saveBoardConfig(w, h, bestSolution);
+      saveBoardConfig(w, h, solution);
       renderBoard();
+      updateSolutionCounter();
+    }
+
+    function getSolutionCellSignature(solution) {
+      // Create a signature based on which cells are covered by which piece
+      const cellToPiece = [];
+
+      for (const placement of solution) {
+        const piece = pieces.find(p => p.id === placement.piece);
+        if (!piece) continue;
+        const anchor = new HexGrid.Hex(placement.anchor.q, placement.anchor.r);
+
+        for (const off of piece.cells) {
+          const ro = HexGrid.rotate(off, placement.rot);
+          const target = HexGrid.add(anchor, ro);
+          const cellIdx = cellIndexMap.get(target.key());
+          if (cellIdx !== undefined) {
+            cellToPiece.push([cellIdx, placement.piece]);
+          }
+        }
+      }
+
+      // Sort by cell index to create canonical ordering
+      cellToPiece.sort((a, b) => a[0] - b[0]);
+      return JSON.stringify(cellToPiece);
     }
 
     // Pack placements into flat typed arrays to reduce structured-clone overhead
@@ -496,32 +533,41 @@
           workerSearchCounts[i] = data.searchCount;
           totalSearchCount = workerSearchCounts.reduce((sum, count) => sum + count, 0);
           updateStats();
-        } else if (type === 'SOLUTION') {
-          workerSearchCounts[i] = data.searchCount;
-          totalSearchCount = workerSearchCounts.reduce((sum, count) => sum + count, 0);
-          if (data.coverage > bestCoverage) {
-            bestCoverage = data.coverage;
-            bestSolution = data.solution;
-            console.log(`Worker ${data.workerId} found better solution! Coverage: ${bestCoverage}`);
-            updateStats();
-            updateBoardDisplay();
-
-            // Notify other workers of new best
-            workers.forEach(w => { w.postMessage({ type: 'UPDATE_BEST', data: { coverage: bestCoverage } }); });
-          }
         } else if (type === 'COMPLETE') {
           workerSearchCounts[i] = data.searchCount;
           totalSearchCount = workerSearchCounts.reduce((sum, count) => sum + count, 0);
           completedWorkers++;
           console.log(`Worker ${data.workerId} completed (searched ${data.searchCount} states). ${completedWorkers}/${workers.length} done`);
 
+          // Process solutions from this worker
+          if (data.coverage > bestCoverage) {
+            // This worker found better coverage - replace all solutions
+            bestCoverage = data.coverage;
+            topSolutions = data.solutions || [];
+            currentSolutionIndex = 0;
+            console.log(`Worker ${data.workerId} found best coverage! Coverage: ${bestCoverage}, ${topSolutions.length} solution(s)`);
+          } else if (data.coverage === bestCoverage && data.solutions) {
+            // Same coverage - merge solutions with proper deduplication
+            const existingSignatures = new Set(topSolutions.map(s => getSolutionCellSignature(s)));
+
+            for (const newSol of data.solutions) {
+              const signature = getSolutionCellSignature(newSol);
+              if (!existingSignatures.has(signature)) {
+                existingSignatures.add(signature);
+                topSolutions.push(newSol);
+              }
+            }
+            console.log(`Worker ${data.workerId} added solutions. Total: ${topSolutions.length}`);
+          }
+
           if (completedWorkers >= workers.length) {
             // All workers done
             const elapsed = Date.now() - startTime;
             console.log(`All workers complete! Searched ${totalSearchCount} states in ${elapsed}ms`);
-            console.log(`Best solution: ${bestCoverage} cells with ${bestSolution ? bestSolution.length : 0} pieces`);
+            console.log(`Best solution: ${bestCoverage} cells with ${topSolutions.length} solution(s) tied for top coverage`);
 
             updateStats();
+            updateSolutionCounter();
             statsStatus.textContent = solverShouldStop ? 'stopped' : 'complete';
             solverRunning = false;
             solveBtn.textContent = 'solve';
@@ -529,17 +575,15 @@
             workers.forEach(w => w.terminate());
             workers = [];
 
-            if (bestSolution) {
-              saveBoardConfig(w, h, bestSolution);
+            if (topSolutions.length > 0) {
+              saveBoardConfig(w, h, topSolutions[currentSolutionIndex]);
               updateBoardDisplay();
             } else {
               renderBoard();
             }
           }
         }
-      };
-
-      worker.onerror = function(err) { console.error(`Worker ${i} error:`, err); };
+      };      worker.onerror = function(err) { console.error(`Worker ${i} error:`, err); };
 
       // IMPORTANT: Each worker gets a different subset of first-piece placements to explore
       console.log(`Worker ${i} assigned ${assignedPlacementIndices.length} initial placements (${startIdx}-${endIdx-1})`);
@@ -565,229 +609,56 @@
     }
   }
 
-  // Async solver (fallback)
-  async function solveAsync(){
-    solverRunning = true;
-    solverShouldStop = false;
-    solveBtn.textContent = 'stop';
-    solverStatsEl.style.display = 'block';
-    statsStatus.textContent = 'running...';
+  function showPreviousSolution() {
+    if (topSolutions.length === 0) return;
+    currentSolutionIndex = (currentSolutionIndex - 1 + topSolutions.length) % topSolutions.length;
+    const w = parseInt(boardW.value, 10) || 9;
+    const h = parseInt(boardH.value, 10) || 9;
+    saveBoardConfig(w, h, topSolutions[currentSolutionIndex]);
+    loadAndRenderCurrentSolution();
+  }
 
-    const w = Math.max(1, parseInt(boardW.value, 10) || 1);
-    const h = Math.max(1, parseInt(boardH.value, 10) || 1);
-    boardGrid = new HexGrid.HexGrid();
-    boardGrid.generateRect(w, h);
+  function showNextSolution() {
+    if (topSolutions.length === 0) return;
+    currentSolutionIndex = (currentSolutionIndex + 1) % topSolutions.length;
+    const w = parseInt(boardW.value, 10) || 9;
+    const h = parseInt(boardH.value, 10) || 9;
+    saveBoardConfig(w, h, topSolutions[currentSolutionIndex]);
+    loadAndRenderCurrentSolution();
+  }
 
-    console.log('Starting backtracking solver...');
-    const startTime = Date.now();
+  function loadAndRenderCurrentSolution() {
+    if (topSolutions.length === 0 || !topSolutions[currentSolutionIndex]) return;
 
-    const boardSize = w * h;
-
-    // Find all valid placements for each piece (precompute)
-    const piecePlacements = pieces.map((piece, pi) => {
-      const placements = [];
-      const rotLimit = (allowRotationsCheckbox && !allowRotationsCheckbox.checked) ? 1 : 6;
-      for (let rot = 0; rot < rotLimit; rot++) {
-        boardGrid.forEach((cell) => {
-          const anchor = cell.hex;
-          let valid = true;
-          const targets = [];
-          for (const off of piece.cells) {
-            const ro = HexGrid.rotate(off, rot);
-            const target = HexGrid.add(anchor, ro);
-            if (!boardGrid.has(target)) {
-              valid = false;
-              break;
-            }
-            targets.push(target);
-          }
-          if (valid) {
-            placements.push({piece, pieceIdx: pi, anchor, rot, targets});
-          }
-        });
-      }
-      return placements;
+    const solution = topSolutions[currentSolutionIndex];
+    boardGrid.forEach(cell => {
+      boardGrid.set(cell.hex, null);
     });
 
-    console.log('Precomputed placements:', piecePlacements.map((p, i) => `piece ${i}: ${p.length} placements`));
+    for (const placement of solution) {
+      const piece = pieces.find(p => p.id === placement.piece);
+      if (!piece) continue;
+      const anchor = new HexGrid.Hex(placement.anchor.q, placement.anchor.r);
 
-    // OPTIMIZATION 1: Sort pieces by size (largest first = most constrained first)
-    const pieceOrder = pieces.map((p, i) => i).sort((a, b) => {
-      return pieces[b].cells.length - pieces[a].cells.length;
-    });
-    console.log('Piece order (by size):', pieceOrder.map(i => `${i}(${pieces[i].cells.length})`));
-
-    // Backtracking solver state
-    let bestSolution = null;
-    let bestCoverage = 0;
-    let searchCount = 0;
-    let lastUpdateTime = Date.now();
-    let yieldCounter = 0;
-
-    function updateStats() {
-      const elapsed = (Date.now() - startTime) / 1000;
-      const statesPerSecond = elapsed > 0 ? Math.round(searchCount / elapsed) : 0;
-
-      statsCount.textContent = searchCount.toLocaleString() + ` (${statesPerSecond.toLocaleString()}/s)`;
-      statsCoverage.textContent = `${bestCoverage}/${boardSize}`;
-      statsPieces.textContent = bestSolution ? `${bestSolution.length}/${pieces.length}` : `0/${pieces.length}`;
-      statsTime.textContent = elapsed.toFixed(1);
-    }
-
-    function updateBoardDisplay() {
-      if (!bestSolution) return;
-
-      // Clear board
-      boardGrid.forEach(cell => {
-        boardGrid.set(cell.hex, null);
-      });
-
-      // Apply best solution
-      for (const placement of bestSolution) {
-        const piece = pieces.find(p => p.id === placement.piece);
-        const anchor = new HexGrid.Hex(placement.anchor.q, placement.anchor.r);
-
-        for (const off of piece.cells) {
-          const ro = HexGrid.rotate(off, placement.rot);
-          const target = HexGrid.add(anchor, ro);
-          boardGrid.set(target, {color: piece.color});
+      for (const off of piece.cells) {
+        const ro = HexGrid.rotate(off, placement.rot);
+        const target = HexGrid.add(anchor, ro);
+        if (boardGrid.has(target)) {
+          boardGrid.set(target, { color: piece.color });
         }
       }
-
-      // Save to localStorage so renderBoard can read it
-      saveBoardConfig(w, h, bestSolution);
-      renderBoard();
     }
 
-    // Helper to yield to event loop
-    function yieldToUI() {
-      return new Promise(resolve => setTimeout(resolve, 0));
-    }
-
-    async function backtrack(remainingPieces, occ, currentSolution, coverage) {
-      if (solverShouldStop) {
-        return true; // Signal to stop
-      }
-
-      searchCount++;
-      yieldCounter++;
-
-      // Yield to UI periodically (every 10000 states)
-      if (yieldCounter >= 10000) {
-        yieldCounter = 0;
-        updateStats();
-        await yieldToUI();
-      }
-
-      // OPTIMIZATION 2: Early termination if board is fully covered
-      if (coverage >= boardSize) {
-        console.log('full coverage achieved!');
-        return true;
-      }
-
-      // Prune: can't beat current best even if we place all remaining pieces
-      const maxPossible = coverage + remainingPieces.reduce((sum, pi) => sum + pieces[pi].cells.length, 0);
-      if (maxPossible <= bestCoverage) {
-        return false;
-      }
-
-      // Update best solution if this is better
-      if (coverage > bestCoverage) {
-        bestCoverage = coverage;
-        bestSolution = currentSolution.slice();
-        console.log(`new best solution! coverage: ${bestCoverage}, pieces: ${bestSolution.length}`);
-        updateStats();
-        updateBoardDisplay();
-      }
-
-      // Define 6 hex directions for neighbor checking
-      const hexDirections = [
-        new HexGrid.Hex(1, 0), new HexGrid.Hex(1, -1), new HexGrid.Hex(0, -1),
-        new HexGrid.Hex(-1, 0), new HexGrid.Hex(-1, 1), new HexGrid.Hex(0, 1)
-      ];
-
-      // OPTIMIZATION 3: Try pieces in order (largest first)
-      for (const pi of remainingPieces) {
-        const placements = piecePlacements[pi];
-
-        // OPTIMIZATION 4: Sort placements by adjacency to occupied cells
-        const scoredPlacements = placements.map(placement => {
-          // Check if valid with current occupancy
-          const valid = placement.targets.every(t => !occ.has(t.key()));
-          if (!valid) return null;
-
-          // Score by adjacency: how many neighbors of this placement are already occupied
-          let adjacencyScore = 0;
-          for (const t of placement.targets) {
-            // Check 6 neighbors
-            for (let dir = 0; dir < 6; dir++) {
-              const neighbor = HexGrid.add(t, hexDirections[dir]);
-              if (occ.has(neighbor.key())) {
-                adjacencyScore++;
-              }
-            }
-          }
-          return {placement, adjacencyScore};
-        }).filter(x => x !== null);
-
-        // Sort by adjacency (higher = better, more connected)
-        scoredPlacements.sort((a, b) => b.adjacencyScore - a.adjacencyScore);
-
-        // Try each valid placement
-        for (const {placement} of scoredPlacements) {
-          if (solverShouldStop) return true;
-
-          // Place the piece
-          const newOcc = new Map(occ);
-          for (const t of placement.targets) {
-            newOcc.set(t.key(), pi);
-          }
-
-          // Recurse with remaining pieces
-          const newRemaining = remainingPieces.filter(x => x !== pi);
-          const newSolution = currentSolution.slice();
-          newSolution.push({
-            piece: placement.piece.id,
-            anchor: {q: placement.anchor.q, r: placement.anchor.r},
-            rot: placement.rot,
-            pieceIdx: pi
-          });
-
-          const stopped = await backtrack(newRemaining, newOcc, newSolution, coverage + placement.targets.length);
-          if (stopped) return true;
-        }
-      }
-      return false;
-    }
-
-    // Start backtracking with pieces in optimal order
-    const remainingPieces = pieceOrder;
-    await backtrack(remainingPieces, new Map(), [], 0);
-
-    const elapsed = Date.now() - startTime;
-    console.log(`backtracking complete! searched ${searchCount} states in ${elapsed}ms`);
-    console.log(`best solution: ${bestCoverage} cells covered with ${bestSolution ? bestSolution.length : 0} pieces`);
-
-    // Final update
-    updateStats();
-    statsStatus.textContent = solverShouldStop ? 'stopped' : 'complete';
-    solverRunning = false;
-    solveBtn.textContent = 'solve';
-
-    // Apply the best solution found
-    if (bestSolution) {
-      saveBoardConfig(w, h, bestSolution);
-      updateBoardDisplay();
-    } else {
-      console.log('no solution found');
-      saveBoardConfig(w, h, []);
-      renderBoard();
-    }
+    solutionCounter.textContent = `${currentSolutionIndex + 1} of ${topSolutions.length}`;
+    renderBoard();
   }
 
   function onClear(){
     if (!boardGrid) return;
     boardGrid.clearData();
+    topSolutions = [];
+    currentSolutionIndex = 0;
+    solutionCyclingEl.style.display = 'none';
     saveBoardConfig(boardW.value, boardH.value, []);
     renderBoard();
   }

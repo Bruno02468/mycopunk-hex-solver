@@ -45,7 +45,7 @@ const hexDirections = [
 let shouldStop = false;
 let searchCount = 0;
 let bestCoverage = 0;
-let bestSolution = null;
+let topSolutions = []; // All solutions tied for best coverage
 
 // Handle messages from main thread
 self.onmessage = function(e) {
@@ -55,7 +55,7 @@ self.onmessage = function(e) {
     shouldStop = false;
     searchCount = 0;
     bestCoverage = data.initialBestCoverage || 0;
-    bestSolution = null;
+    topSolutions = [];
 
     // Start searching
     solve(data);
@@ -65,6 +65,7 @@ self.onmessage = function(e) {
     // Another worker found a better solution
     if (data.coverage > bestCoverage) {
       bestCoverage = data.coverage;
+      topSolutions = []; // Clear our solutions as they're now suboptimal
     }
   }
 };
@@ -140,6 +141,29 @@ function solve(data) {
     return sol.map(p => ({ piece: p.pieceId, anchor: boardCells[p.anchorIdx], rot: p.rot }));
   }
 
+  function getSolutionCellSignature(sol) {
+    // Create a signature based on which cells are covered by which piece
+    // Sort by cell index to create canonical ordering
+    const cellToPiece = [];
+
+    for (const placement of sol) {
+      const base = placement.pIdx * 6;
+      const tStart = placementsMeta[base + 4];
+      const tLen = placementsMeta[base + 5];
+
+      for (let ti = tStart; ti < tStart + tLen; ti++) {
+        const cellIdx = placementsTargets[ti];
+        cellToPiece.push([cellIdx, placement.pieceId]);
+      }
+    }
+
+    // Sort by cell index to create canonical ordering
+    cellToPiece.sort((a, b) => a[0] - b[0]);
+    return JSON.stringify(cellToPiece);
+  }
+
+  const seenSignatures = new Set();
+
   function backtrack(remainingPieces, remainingSum, currentSolution, coverage) {
     if (shouldStop) return true;
 
@@ -152,13 +176,19 @@ function solve(data) {
 
     if (coverage > bestCoverage) {
       bestCoverage = coverage;
-      bestSolution = exportSolution(currentSolution.slice());
-      self.postMessage({ type: 'SOLUTION', data: { solution: bestSolution, coverage: bestCoverage, searchCount, workerId } });
+      topSolutions = [exportSolution(currentSolution.slice())];
+      seenSignatures.clear();
+      seenSignatures.add(getSolutionCellSignature(currentSolution));
+    } else if (coverage === bestCoverage && coverage > 0) {
+      // Found another solution tied for best
+      const signature = getSolutionCellSignature(currentSolution);
+      if (!seenSignatures.has(signature)) {
+        seenSignatures.add(signature);
+        topSolutions.push(exportSolution(currentSolution.slice()));
+      }
     }
 
-    if (coverage >= boardSize) return true;
-
-    // optimistic bound
+    if (coverage >= boardSize) return true;    // optimistic bound
     if (coverage + remainingSum <= bestCoverage) return false;
 
     // Dynamic MRV: pick the remaining piece with the fewest currently-valid placements
@@ -232,7 +262,7 @@ function solve(data) {
       const pieceId = placementsMeta[base + 1];
       const anchorIdx = placementsMeta[base + 2];
       const rot = placementsMeta[base + 3];
-      currentSolution.push({ pieceId, anchorIdx, rot });
+      currentSolution.push({ pieceId, anchorIdx, rot, pIdx });
       const newRemaining = remainingPieces.slice(0, bestRi).concat(remainingPieces.slice(bestRi + 1));
       const newRemainingSum = remainingSum - pieces[chosenPi].size;
       const stopped = backtrack(newRemaining, newRemainingSum, currentSolution, coverage + placementsMeta[base + 5]);
@@ -258,7 +288,7 @@ function solve(data) {
     const anchorIdx = placementsMeta[base + 2];
     const rot = placementsMeta[base + 3];
     const tLen = placementsMeta[base + 5];
-    const initialSolution = [{ pieceId, anchorIdx, rot }];
+    const initialSolution = [{ pieceId, anchorIdx, rot, pIdx }];
     backtrack(remainingAfterFirst, remainingAfterFirstSum, initialSolution, tLen);
     // undo initial placement fully
     undoPlacementByIndex(pIdx);
@@ -267,5 +297,5 @@ function solve(data) {
   }
 
   // final report
-  self.postMessage({ type: 'COMPLETE', data: { solution: bestSolution, coverage: bestCoverage, searchCount, workerId } });
+  self.postMessage({ type: 'COMPLETE', data: { solutions: topSolutions, coverage: bestCoverage, searchCount, workerId } });
 }
