@@ -56,7 +56,10 @@
     addPieceBtn.addEventListener('click', onAddPiece);
     solveBtn.addEventListener('click', onSolve);
     clearBtn.addEventListener('click', onClear);
-    highContrastCheckbox.addEventListener('change', renderBoard);
+    highContrastCheckbox.addEventListener('change', () => {
+      renderBoard();
+      renderPiecesList();
+    });
     prevSolutionBtn.addEventListener('click', showPreviousSolution);
     nextSolutionBtn.addEventListener('click', showNextSolution);
     boardW.value = 9;
@@ -283,6 +286,27 @@
     container.style.width = PREVIEW_SIZE*5*Math.sqrt(3) + 'px';
     container.style.height = height + 'px';
     // Render hexes
+    // Use high contrast color if enabled
+    let previewColor = piece.color;
+    if (typeof highContrastCheckbox !== 'undefined' && highContrastCheckbox.checked) {
+      // Try to match the color logic from pieceColorVariations
+      const idx = pieces.findIndex(p => p.id === piece.id);
+      if (idx !== -1) {
+        // Use the same highContrastColor function as in board rendering
+        const base_palette = [
+          "#FF6B6B", "#4ECDC4", "#FFD93D", "#1A535C", "#FF9F1C",
+          "#5C7AEA", "#6BCB77", "#C86BFA", "#F06595", "#00BBF9"
+        ];
+        function highContrastColor(i, n) {
+          if (i < base_palette.length) return base_palette[i];
+          const hue = (360 / n) * i;
+          const lightness = 65;
+          const chroma = 70;
+          return `lch(${lightness}% ${chroma} ${hue})`;
+        }
+        previewColor = highContrastColor(idx, pieces.length);
+      }
+    }
     previewHexes.forEach(h => {
       // Flat-top: odd columns offset down by half hex height
       const x = PREVIEW_SIZE * 1.5 * h.q;
@@ -293,7 +317,7 @@
       hex.style.height = hexH + 'px';
       hex.style.left = x + 'px';
       hex.style.top = y + 'px';
-      hex.style.background = piece.color;
+      hex.style.background = previewColor;
       hex.style.clipPath = 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)';
       hex.style.border = '1px solid #aaa';
       container.appendChild(hex);
@@ -681,7 +705,8 @@
     boardContainer.innerHTML = '';
     const opt = {
       size: HEX_SIZE,
-      showCoords: false
+      showCoords: false,
+      spacing: 0,
     };
     renderer = new HexGrid.Renderer(boardContainer, boardGrid, opt);
     // force flat-top hex shape for all board hexes
@@ -765,58 +790,41 @@
     const pieceColorVariations = {};
     const isHighContrast = highContrastCheckbox.checked;
 
-    // Generate N distinct colors for each color group
-    function generateDistinctColors(baseColor, count) {
-      if (count === 0) return [];
-      if (count === 1) return [baseColor];
 
-      // Parse base color
-      const match = baseColor.match(/rgb\((\d+),(\d+),(\d+)\)/);
-      if (!match) return Array(count).fill(baseColor);
+    const base_palette = [
+      "#FF6B6B", // red
+      "#4ECDC4", // turquoise
+      "#FFD93D", // yellow
+      "#1A535C", // teal
+      "#FF9F1C", // orange
+      "#5C7AEA", // periwinkle
+      "#6BCB77", // green
+      "#C86BFA", // violet
+      "#F06595", // pink
+      "#00BBF9"  // light blue
+    ]
 
-      let [_, r, g, b] = match.map(Number);
-      let [h, s, l] = rgbToHsl(r, g, b);
-
-      const colors = [];
-
-      if (!isHighContrast) {
-        // When high-contrast is off, just use the base color for all
-        return Array(count).fill(baseColor);
+    function highContrastColor(i, n) {
+      if (i < base_palette.length) {
+        return base_palette[i]
       }
-
-      // Generate N colors evenly distributed in HSL space
-      // Vary lightness primarily, with some hue and saturation variation
-      for (let i = 0; i < count; i++) {
-        // Distribute lightness evenly across available range
-        const lightnessRange = 80; // from 10 to 90
-        const lightnessMin = 10;
-        const newL = lightnessMin + (i / (count - 1)) * lightnessRange;
-
-        // Add some hue variation (±30 degrees)
-        const hueVariation = ((i / (count - 1)) * 60) - 30;
-        const newH = (h + hueVariation + 360) % 360;
-
-        // Vary saturation slightly
-        const satVariation = ((i % 3) - 1) * 15; // -15, 0, +15
-        const newS = Math.max(20, Math.min(100, s + satVariation));
-
-        const [newR, newG, newB] = hslToRgb(newH, newS, newL);
-        colors.push(`rgb(${newR},${newG},${newB})`);
-      }
-
-      return colors;
+      const hue = (360 / n) * i
+      const lightness = 65
+      const chroma = 70
+      return `lch(${lightness}% ${chroma} ${hue})`
     }
 
-    Object.keys(colorGroups).forEach(baseColor => {
-      const piecesWithColor = colorGroups[baseColor];
-      const count = piecesWithColor.length;
-
-      const distinctColors = generateDistinctColors(baseColor, count);
-
-      piecesWithColor.forEach((pieceId, index) => {
-        pieceColorVariations[pieceId] = distinctColors[index];
+    // Assign each piece a unique high-contrast color if enabled
+    if (isHighContrast) {
+      pieces.forEach((p, i) => {
+        pieceColorVariations[p.id] = highContrastColor(i, pieces.length);
       });
-    });
+    } else {
+      // Not high-contrast: use base color for all
+      pieces.forEach(p => {
+        pieceColorVariations[p.id] = p.color;
+      });
+    }
 
     // For each solution placement, mark the cells with varied colors
     solution.forEach(s => {
@@ -918,132 +926,142 @@
           cellsWithCenters.push({hex: target, center: [cx, cy]});
         }
       });
-      if (cellsWithCenters.length >= 2) {
-        // Build adjacency graph for the piece's hexes
-        const adjacencyMap = new Map();
-        cellsWithCenters.forEach(cell => {
-          adjacencyMap.set(cell.hex.key(), []);
-        });
-
-        // Find which hexes are adjacent to each other
-        for (let i = 0; i < cellsWithCenters.length; i++) {
-          for (let j = i + 1; j < cellsWithCenters.length; j++) {
-            const diff = HexGrid.subtract(cellsWithCenters[i].hex, cellsWithCenters[j].hex);
-            const isAdjacent = (Math.abs(diff.q) <= 1 && Math.abs(diff.r) <= 1 && Math.abs(diff.q + diff.r) <= 1);
-
-            if (isAdjacent) {
-              adjacencyMap.get(cellsWithCenters[i].hex.key()).push(j);
-              adjacencyMap.get(cellsWithCenters[j].hex.key()).push(i);
-            }
-          }
-        }
-
-        // Find a path that minimizes edge crossings by doing a depth-first traversal
-        // Start from a cell with fewer neighbors (likely an endpoint)
-        let startIdx = 0;
-        let minNeighbors = Infinity;
+      if (cellsWithCenters.length >= 1) {
+        // Build adjacency graph for the piece's hexes using hex directions
+        const hexesInPiece = new Map();
         cellsWithCenters.forEach((cell, idx) => {
-          const neighbors = adjacencyMap.get(cell.hex.key()).length;
-          if (neighbors < minNeighbors) {
-            minNeighbors = neighbors;
-            startIdx = idx;
+          hexesInPiece.set(cell.hex.key(), idx);
+        });
+        const hexDirections = [
+          {q: 1, r: 0}, {q: 1, r: -1}, {q: 0, r: -1},
+          {q: -1, r: 0}, {q: -1, r: 1}, {q: 0, r: 1}
+        ];
+        const adjacencyMap = new Map();
+        cellsWithCenters.forEach((cell, idx) => {
+          const neighbors = [];
+          for (const dir of hexDirections) {
+            const neighborHex = new HexGrid.Hex(cell.hex.q + dir.q, cell.hex.r + dir.r);
+            const nIdx = hexesInPiece.get(neighborHex.key());
+            if (nIdx !== undefined) neighbors.push(nIdx);
           }
+          adjacencyMap.set(cell.hex.key(), neighbors);
         });
 
+        // 1. Find all connected components (BFS)
+        const components = [];
         const visited = new Set();
-        const path = [];
+        for (let i = 0; i < cellsWithCenters.length; i++) {
+          if (visited.has(i)) continue;
+          const queue = [i];
+          const comp = [];
+          visited.add(i);
+          while (queue.length) {
+            const idx = queue.shift();
+            comp.push(idx);
+            const neighbors = adjacencyMap.get(cellsWithCenters[idx].hex.key());
+            for (const n of neighbors) {
+              if (!visited.has(n)) {
+                visited.add(n);
+                queue.push(n);
+              }
+            }
+          }
+          components.push(comp);
+        }
 
-        function dfs(idx, prevIdx = null) {
-          if (visited.has(idx)) return;
-          visited.add(idx);
-          path.push(cellsWithCenters[idx].center);
+        // 2. For each component, build a spanning tree (no cycles)
+        function buildPolylinesForComponent(comp) {
+          const polylines = [];
 
-          // Get adjacent neighbors first (strongly preferred)
-          const adjacentNeighbors = adjacencyMap.get(cellsWithCenters[idx].hex.key());
-          const unvisitedAdjacent = adjacentNeighbors.filter(n => !visited.has(n));
+          if (comp.length === 0) return polylines;
 
-          // Sort adjacent neighbors to prefer continuing in the same direction, then by fewest branches
-          const sortedAdjacent = unvisitedAdjacent.sort((a, b) => {
-            // If we came from somewhere, prefer continuing in same direction
-            if (prevIdx !== null) {
-              const prevHex = cellsWithCenters[prevIdx].hex;
-              const currHex = cellsWithCenters[idx].hex;
-              const aHex = cellsWithCenters[a].hex;
-              const bHex = cellsWithCenters[b].hex;
+          // Build spanning tree using BFS to connect all hexes without cycles
+          const visited = new Set();
+          const queue = [comp[0]];
+          visited.add(comp[0]);
 
-              // Direction vectors
-              const prevDir = { q: currHex.q - prevHex.q, r: currHex.r - prevHex.r };
-              const aDir = { q: aHex.q - currHex.q, r: aHex.r - currHex.r };
-              const bDir = { q: bHex.q - currHex.q, r: bHex.r - currHex.r };
+          while (queue.length > 0) {
+            const idx = queue.shift();
+            const neighbors = adjacencyMap.get(cellsWithCenters[idx].hex.key());
 
-              // Prefer same direction (dot product closer to 1)
-              const aDot = prevDir.q * aDir.q + prevDir.r * aDir.r;
-              const bDot = prevDir.q * bDir.q + prevDir.r * bDir.r;
-
-              if (Math.abs(aDot - bDot) > 0.5) {
-                return bDot - aDot; // Higher dot = more aligned
+            for (const neighborIdx of neighbors) {
+              if (!visited.has(neighborIdx)) {
+                visited.add(neighborIdx);
+                queue.push(neighborIdx);
+                // Draw edge from parent to child in spanning tree
+                polylines.push([
+                  cellsWithCenters[idx].center,
+                  cellsWithCenters[neighborIdx].center
+                ]);
               }
             }
 
-            // Otherwise prefer cells with fewer branches (terminals first)
-            const aNeighbors = adjacencyMap.get(cellsWithCenters[a].hex.key()).length;
-            const bNeighbors = adjacencyMap.get(cellsWithCenters[b].hex.key()).length;
-            return aNeighbors - bNeighbors;
-          });
-
-          // Visit all adjacent neighbors first
-          for (const neighbor of sortedAdjacent) {
-            dfs(neighbor, idx);
+            // Handle isolated hexes (degree 0) - draw a small dot
+            if (neighbors.length === 0) {
+              polylines.push([cellsWithCenters[idx].center]);
+            }
           }
 
-          // If there are still unvisited cells (non-contiguous piece), jump to nearest one
-          if (visited.size < cellsWithCenters.length) {
-            let nearestIdx = -1;
-            let minDist = Infinity;
+          return polylines;
+        }
 
-            for (let i = 0; i < cellsWithCenters.length; i++) {
-              if (visited.has(i)) continue;
+        let allPolylines = [];
+        for (const comp of components) {
+          allPolylines = allPolylines.concat(buildPolylinesForComponent(comp));
+        }
 
-              const dist = Math.hypot(
-                cellsWithCenters[i].center[0] - cellsWithCenters[idx].center[0],
-                cellsWithCenters[i].center[1] - cellsWithCenters[idx].center[1]
-              );
-
-              if (dist < minDist) {
-                minDist = dist;
-                nearestIdx = i;
+        // 3. If multiple truly disjoint components, connect them by closest pair
+        if (components.length > 1) {
+          // Only connect if the components are truly disjoint (no shared hexes)
+          // Find closest pair between any two components
+          const compCenters = components.map(comp => comp.map(idx => cellsWithCenters[idx].center));
+          let minDist = Infinity, minPair = null, minI = -1, minJ = -1;
+          for (let i = 0; i < compCenters.length; i++) {
+            for (let j = i+1; j < compCenters.length; j++) {
+              for (const a of compCenters[i]) {
+                for (const b of compCenters[j]) {
+                  const dx = a[0] - b[0], dy = a[1] - b[1];
+                  const dist = dx*dx + dy*dy;
+                  if (dist < minDist) {
+                    minDist = dist;
+                    minPair = [a, b];
+                    minI = i;
+                    minJ = j;
+                  }
+                }
               }
             }
-
-            if (nearestIdx >= 0) {
-              dfs(nearestIdx, idx);
-            }
+          }
+          // Only add connection if the two components are not already connected
+          if (minPair && minI !== minJ && minI !== -1 && minJ !== -1) {
+            allPolylines.push([minPair[0], minPair[1]]);
           }
         }
 
-        dfs(startIdx);
-        // Draw polyline through the path
-        const pts = path.map(p => p.join(',')).join(' ');
-        const outline = document.createElementNS(svgNS, 'polyline');
-        outline.setAttribute('points', pts);
-        outline.setAttribute('fill', 'none');
-        outline.setAttribute('stroke', '#000');
-        outline.setAttribute('stroke-opacity', '0.5');
-        outline.setAttribute('stroke-width', '6');
-        outline.setAttribute('stroke-linecap', 'round');
-        outline.setAttribute('stroke-linejoin', 'round');
-        svg.appendChild(outline);
-        // main polyline (white thinner)
-        const main = document.createElementNS(svgNS, 'polyline');
-        main.setAttribute('points', pts);
-        main.setAttribute('fill', 'none');
-        // use piece color for main stroke and make it slightly translucent
-        main.setAttribute('stroke', piece.color || '#fff');
-        main.setAttribute('stroke-opacity', '0.85');
-        main.setAttribute('stroke-width', '4');
-        main.setAttribute('stroke-linecap', 'round');
-        main.setAttribute('stroke-linejoin', 'round');
-        svg.appendChild(main);
+        // 4. Draw all polylines
+        for (const path of allPolylines) {
+          const pts = path.map(p => p.join(',')).join(' ');
+          const outline = document.createElementNS(svgNS, 'polyline');
+          outline.setAttribute('points', pts);
+          outline.setAttribute('fill', 'none');
+          outline.setAttribute('stroke', '#000');
+          outline.setAttribute('stroke-opacity', '0.5');
+          outline.setAttribute('stroke-width', '6');
+          outline.setAttribute('stroke-linecap', 'round');
+          outline.setAttribute('stroke-linejoin', 'round');
+          svg.appendChild(outline);
+          // main polyline (color matches fill)
+          const main = document.createElementNS(svgNS, 'polyline');
+          main.setAttribute('points', pts);
+          main.setAttribute('fill', 'none');
+          const polyColor = isHighContrast ? pieceColorVariations[piece.id] : (piece.color || '#fff');
+          main.setAttribute('stroke', polyColor);
+          main.setAttribute('stroke-opacity', '0.85');
+          main.setAttribute('stroke-width', '4');
+          main.setAttribute('stroke-linecap', 'round');
+          main.setAttribute('stroke-linejoin', 'round');
+          svg.appendChild(main);
+        }
       }
     });
 
