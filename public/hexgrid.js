@@ -333,10 +333,10 @@
       coords.forEach(({cell, p}) => {
         const el = document.createElement('div');
         el.className = 'hexgrid-cell default';
-        el.style.width = Math.round(hexW) + 'px';
-        el.style.height = Math.round(hexH) + 'px';
-        el.style.left = Math.round(p.x + offsetX - hexW/2) + 'px';
-        el.style.top = Math.round(p.y + offsetY - hexH/2) + 'px';
+        el.style.width = hexW + 'px';
+        el.style.height = hexH + 'px';
+        el.style.left = (p.x + offsetX - hexW/2) + 'px';
+        el.style.top = (p.y + offsetY - hexH/2) + 'px';
         // Flat-top hex shape
         el.style.clipPath = 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)';
         el.dataset.q = cell.hex.q;
