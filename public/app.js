@@ -48,6 +48,9 @@
   // fixed hex size for all grids
   const HEX_SIZE = 24;
   const PREVIEW_SIZE = 8;
+  // editor grid dimensions (change these to alter piece editor and previews)
+  const EDITOR_GRID_W = 7;
+  const EDITOR_GRID_H = 5;
 
   // no unused vars
 
@@ -90,9 +93,9 @@
   // editor UI - use a hex grid for editing
   function buildEditor(){
     editorGridEl.innerHTML = '';
-    // create a 5x5 flat-top rectangle editor grid
-    editorGrid = new HexGrid.HexGrid();
-    editorGrid.generateRect(5, 5, 0, 0);
+  // create an editor grid with configurable size
+  editorGrid = new HexGrid.HexGrid();
+  editorGrid.generateRect(EDITOR_GRID_W, EDITOR_GRID_H, 0, 0);
     const size = 20; // smaller hex size for editor
     editorRenderer = new HexGrid.Renderer(editorGridEl, editorGrid, {
       size,
@@ -202,8 +205,8 @@
       // tiny preview
       const prevDiv = document.createElement('div');
       prevDiv.style.display = 'inline-block';
-      prevDiv.style.width = (PREVIEW_SIZE*5) + 'px';
-      prevDiv.style.height = (PREVIEW_SIZE*5) + 'px';
+        prevDiv.style.width = (PREVIEW_SIZE * EDITOR_GRID_W) + 'px';
+        prevDiv.style.height = (PREVIEW_SIZE * EDITOR_GRID_H) + 'px';
       prevDiv.style.position = 'relative';
       li.appendChild(prevDiv);
       renderPiecePreview(prevDiv, p);
@@ -283,7 +286,7 @@
     });
     const height = maxY + hexH;
     container.style.position = 'relative';
-    container.style.width = PREVIEW_SIZE*5*Math.sqrt(3) + 'px';
+  container.style.width = PREVIEW_SIZE * EDITOR_GRID_W * Math.sqrt(3) + 'px';
     container.style.height = height + 'px';
     // Render hexes
     // Use high contrast color if enabled
